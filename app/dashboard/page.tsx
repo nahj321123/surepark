@@ -8,7 +8,7 @@ import {
   QrCode, CheckCircle2, XCircle, RefreshCw,
   AlertCircle, ChevronDown, ChevronUp, Info,
   Search, CalendarCheck, Wallet,
-  ArrowUp, ArrowDown, ShieldCheck, Zap,
+  ArrowUp, ArrowDown, ShieldCheck, Zap, Radio
 } from "lucide-react"
 
 const ParkingMap = dynamic(() => import("@/components/ParkingMap"), { ssr: false })
@@ -27,15 +27,12 @@ interface ParkingSlot {
   bollardUp?: boolean
 }
 
-const LOCATIONS = ["Session Road", "Harrison Road", "SM Baguio", "Cedar Peak", "Mabini"]
-
 export default function DashboardPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [slots, setSlots] = useState<ParkingSlot[]>([])
   const [selectedSlot, setSelectedSlot] = useState<ParkingSlot | null>(null)
 
-  // Load user + slots
   useEffect(() => {
     const u = localStorage.getItem("surepark_user")
     if (!u) return router.push("/login")
@@ -46,7 +43,7 @@ export default function DashboardPage() {
       .then(setSlots)
   }, [])
 
-  // Poll backend (ESP32 updates reflected here)
+  // 🔁 Poll ESP32 updates
   useEffect(() => {
     const i = setInterval(async () => {
       const res = await fetch("/api/slots", { cache: "no-store" })
@@ -57,14 +54,10 @@ export default function DashboardPage() {
   }, [])
 
   const handleReserve = async (slot: ParkingSlot) => {
-    const res = await fetch("/api/slots", {
+    await fetch("/api/slots", {
       method: "POST",
       body: JSON.stringify({ slotId: slot.id, userId: user.email }),
     })
-    if (res.ok) {
-      const updated = await fetch("/api/slots").then(r => r.json())
-      setSlots(updated)
-    }
   }
 
   const handlePayment = async (slot: ParkingSlot) => {
@@ -73,8 +66,6 @@ export default function DashboardPage() {
       method: "PATCH",
       body: JSON.stringify({ paid: true, activeQrToken: qr }),
     })
-    const updated = await fetch("/api/slots").then(r => r.json())
-    setSlots(updated)
   }
 
   const handleBollardToggle = async (slot: ParkingSlot) => {
@@ -85,15 +76,6 @@ export default function DashboardPage() {
         bollardUp: !slot.bollardUp,
       }),
     })
-  }
-
-  const getTimeRemaining = (t?: number) => {
-    if (!t) return ""
-    const r = 15 * 60 * 1000 - (Date.now() - t)
-    if (r <= 0) return "Expired"
-    const m = Math.floor(r / 60000)
-    const s = Math.floor((r % 60000) / 1000)
-    return `${m}:${s.toString().padStart(2, "0")}`
   }
 
   if (!user) return null
@@ -108,12 +90,22 @@ export default function DashboardPage() {
             <h2 className="text-xl">{slot.name || `Slot ${slot.id}`}</h2>
             <p className="text-sm text-slate-400">{slot.location}</p>
 
+            {/* STATUS */}
             <div className="mt-2">
-              <span className="text-xs px-2 py-1 rounded bg-slate-700">
-                {slot.status}
+              <span
+                className={`text-xs px-2 py-1 rounded ${
+                  slot.status === "available"
+                    ? "bg-green-700"
+                    : slot.status === "reserved"
+                    ? "bg-yellow-700"
+                    : "bg-red-700"
+                }`}
+              >
+                {slot.status.toUpperCase()}
               </span>
             </div>
 
+            {/* RESERVE */}
             {slot.status === "available" && (
               <button
                 onClick={() => handleReserve(slot)}
@@ -123,6 +115,7 @@ export default function DashboardPage() {
               </button>
             )}
 
+            {/* PAYMENT */}
             {slot.status === "reserved" && slot.reservedBy === user.email && !slot.paid && (
               <button
                 onClick={() => handlePayment(slot)}
@@ -132,25 +125,51 @@ export default function DashboardPage() {
               </button>
             )}
 
+            {/* AFTER PAYMENT */}
             {slot.paid && (
-              <div className="mt-3">
+              <div className="mt-3 space-y-3">
+
                 <p className="text-xs text-green-400">Payment Complete</p>
 
-                {/* ESP32 SENSOR STATUS */}
-                <div className="mt-2 text-xs text-blue-400">
-                  Waiting for ESP32 sensor...
+                {/* 🔥 SENSOR STATUS (NEW CLEAN VERSION) */}
+                <div className="bg-blue-950/50 border border-blue-800 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-blue-400 animate-pulse" />
+                    <span className="text-sm font-semibold">Sensor</span>
+
+                    <span
+                      className={`ml-auto text-xs px-2 py-1 rounded ${
+                        slot.status === "occupied"
+                          ? "bg-red-700 text-white"
+                          : slot.status === "reserved"
+                          ? "bg-yellow-700 text-white"
+                          : "bg-green-700 text-white"
+                      }`}
+                    >
+                      {slot.status === "occupied"
+                        ? "Car Detected"
+                        : slot.status === "reserved"
+                        ? "Waiting for vehicle..."
+                        : "No vehicle"}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 mt-2">
+                    Controlled automatically by ESP32 sensor.
+                  </p>
                 </div>
 
-                {/* Bollard */}
+                {/* BOLLARD */}
                 <button
                   onClick={() => handleBollardToggle(slot)}
-                  className="mt-3 w-full bg-yellow-600 py-2 rounded"
+                  className="w-full bg-yellow-600 py-2 rounded"
                 >
                   {slot.bollardUp ? "Lower Bollard" : "Raise Bollard"}
                 </button>
               </div>
             )}
 
+            {/* OCCUPIED */}
             {slot.status === "occupied" && (
               <div className="mt-3 text-red-400 text-sm">
                 Car detected (ESP32)
