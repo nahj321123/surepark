@@ -1,47 +1,54 @@
 import { NextRequest, NextResponse } from "next/server"
-import { slotStore } from "@/lib/store"
+import { db } from "@/lib/firebaseAdmin"
 
-// 🔒 SAFE RESERVE FUNCTION
-function safeReserve(slotId: number, userId: string) {
-  const slot = slotStore.getById(slotId)
-  if (!slot) return { ok: false, error: "Slot not found" }
-
-  if (slot.status !== "available") {
-    return { ok: false, error: "Slot already taken" }
-  }
-
-  const updated = slotStore.update(slotId, {
-    status: "reserved",
-    reservedBy: userId,
-    reservedAt: Date.now(),
-  })
-
-  return { ok: true, slot: updated }
-}
-
-// ✅ REQUIRED EXPORT (GET)
+// GET all slots
 export async function GET() {
-  return NextResponse.json(slotStore.getAll(), {
+  const snapshot = await db.ref("slots").once("value")
+
+  return NextResponse.json(snapshot.val() || {}, {
     headers: { "Cache-Control": "no-store" },
   })
 }
 
-// ✅ REQUIRED EXPORT (POST)
+// RESERVE SLOT (SAFE — NO OVERWRITE)
 export async function POST(req: NextRequest) {
   const { slotId, userId } = await req.json()
 
   if (!slotId || !userId) {
     return NextResponse.json(
-      { ok: false, error: "slotId and userId required" },
+      { ok: false, error: "slotId + userId required" },
       { status: 400 }
     )
   }
 
-  const result = safeReserve(slotId, userId)
+  const ref = db.ref(`slots/${slotId}`)
 
-  if (!result.ok) {
-    return NextResponse.json(result, { status: 400 })
+  const result = await ref.transaction((slot) => {
+    if (!slot) {
+      return {
+        status: "reserved",
+        reservedBy: userId,
+        paid: false,
+        bollardUp: false,
+      }
+    }
+
+    // 🔒 LOCK
+    if (slot.status !== "available") {
+      return // abort transaction
+    }
+
+    return {
+      ...slot,
+      status: "reserved",
+      reservedBy: userId,
+      reservedAt: Date.now(),
+    }
+  })
+
+  if (!result.committed) {
+    return NextResponse.json({ ok: false, error: "Slot already taken" })
   }
 
-  return NextResponse.json(result)
+  return NextResponse.json({ ok: true, slot: result.snapshot.val() })
 }
