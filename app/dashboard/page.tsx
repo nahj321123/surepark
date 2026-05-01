@@ -31,15 +31,14 @@ export default function DashboardPage() {
   const [slots, setSlots] = useState<ParkingSlot[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
-  // 🔥 merge API + default
-  const mergeSlots = (api: any[]) => {
-    return DEFAULT_SLOTS.map((def) => {
-      const s = api.find((x) => x.id === def.id)
-      return { ...def, ...s }
+  // 🔥 merge API + static
+  const mergeSlots = (api: any[]) =>
+    DEFAULT_SLOTS.map((d) => {
+      const s = api.find((x) => x.id === d.id)
+      return { ...d, ...s }
     })
-  }
 
-  const loadSlots = async () => {
+  const load = async () => {
     try {
       const res = await fetch("/api/slots", { cache: "no-store" })
       const data = await res.json()
@@ -51,146 +50,142 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const u = localStorage.getItem("surepark_user")
-    if (!u) return router.push("/login")
-    setUser(JSON.parse(u))
-    loadSlots()
+    if (!u) {
+      setUser({ email: "demo@surepark.com" }) // fallback
+    } else {
+      setUser(JSON.parse(u))
+    }
+    load()
   }, [])
 
-  // 🔁 polling
   useEffect(() => {
-    const i = setInterval(loadSlots, 2000)
+    const i = setInterval(load, 2000)
     return () => clearInterval(i)
   }, [])
 
-  const selectedSlot = slots.find((s) => s.id === selectedId)
+  const selected = slots.find((s) => s.id === selectedId)
 
   // ACTIONS
-  const reserve = async (slot: ParkingSlot) => {
+  const reserve = async (s: ParkingSlot) => {
     await fetch("/api/slots", {
       method: "POST",
-      body: JSON.stringify({ slotId: slot.id, userId: user.email }),
+      body: JSON.stringify({ slotId: s.id, userId: user.email }),
     })
-    loadSlots()
+    load()
   }
 
-  const pay = async (slot: ParkingSlot) => {
-    const qr = `SP-${slot.id}-${Date.now()}`
-    await fetch(`/api/slots/${slot.id}`, {
+  const pay = async (s: ParkingSlot) => {
+    const qr = `SP-${s.id}-${Date.now()}`
+    await fetch(`/api/slots/${s.id}`, {
       method: "PATCH",
       body: JSON.stringify({ paid: true, activeQrToken: qr }),
     })
-    loadSlots()
+    load()
   }
 
-  const toggleBollard = async (slot: ParkingSlot) => {
+  const toggleBollard = async (s: ParkingSlot) => {
     await fetch("/api/bollard", {
       method: "POST",
-      body: JSON.stringify({
-        slotId: slot.id,
-        bollardUp: !slot.bollardUp,
-      }),
+      body: JSON.stringify({ slotId: s.id, bollardUp: !s.bollardUp }),
     })
-    loadSlots()
+    load()
   }
 
   if (!user) return null
 
   return (
-    <div className="p-6 text-white">
-      <h1 className="text-2xl font-bold mb-6">SurePark Dashboard</h1>
+    <div className="p-8 text-white max-w-6xl mx-auto">
+      <h1 className="text-3xl font-bold mb-8">SurePark Dashboard</h1>
 
       {/* GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {slots.map((slot) => (
-          <div key={slot.id} className="bg-slate-800 p-5 rounded-xl shadow">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {slots.map((s) => (
+          <div key={s.id} className="bg-slate-800 rounded-xl p-5 shadow-lg">
 
-            <h2 className="text-lg font-bold">{slot.name}</h2>
-            <p className="text-gray-400 text-sm">{slot.location}</p>
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold">{s.name}</h2>
 
-            <span className={`inline-block mt-2 text-xs px-2 py-1 rounded ${
-              slot.status === "available"
-                ? "bg-green-600"
-                : slot.status === "reserved"
-                ? "bg-yellow-600"
-                : "bg-red-600"
-            }`}>
-              {slot.status.toUpperCase()}
-            </span>
+              <span className={`text-xs px-2 py-1 rounded ${
+                s.status === "available"
+                  ? "bg-green-600"
+                  : s.status === "reserved"
+                  ? "bg-yellow-600"
+                  : "bg-red-600"
+              }`}>
+                {s.status}
+              </span>
+            </div>
 
-            <p className="mt-3 text-lg font-semibold">₱{slot.price}/hour</p>
+            <p className="text-sm text-gray-400">{s.location}</p>
+
+            <p className="mt-3 text-lg font-semibold">₱{s.price}/hour</p>
 
             <div className="flex gap-2 mt-4">
               <button
-                onClick={() => setSelectedId(slot.id)}
+                onClick={() => setSelectedId(s.id)}
                 className="flex-1 bg-gray-600 py-2 rounded"
               >
                 View
               </button>
 
-              {slot.status === "available" && (
-                <button
-                  onClick={() => reserve(slot)}
-                  className="flex-1 bg-blue-600 py-2 rounded"
-                >
-                  Reserve
-                </button>
-              )}
+              <button
+                disabled={s.status !== "available"}
+                onClick={() => reserve(s)}
+                className={`flex-1 py-2 rounded ${
+                  s.status === "available"
+                    ? "bg-blue-600"
+                    : "bg-gray-500 cursor-not-allowed"
+                }`}
+              >
+                Reserve
+              </button>
             </div>
           </div>
         ))}
       </div>
 
       {/* MODAL */}
-      {selectedSlot && (
+      {selected && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-slate-900 p-6 rounded-xl w-[380px] shadow-xl">
+          <div className="bg-slate-900 p-6 rounded-xl w-[380px]">
 
-            <h2 className="text-xl font-bold">{selectedSlot.name}</h2>
-            <p className="text-gray-400">{selectedSlot.location}</p>
+            <h2 className="text-xl font-bold">{selected.name}</h2>
+            <p className="text-gray-400">{selected.location}</p>
 
-            <p className="mt-2 text-lg">₱{selectedSlot.price}/hour</p>
-
-            {/* STATUS */}
-            <p className="mt-2 text-sm">
-              Status: <b>{selectedSlot.status}</b>
-            </p>
+            <p className="mt-2 text-lg">₱{selected.price}/hour</p>
 
             {/* PAYMENT */}
-            {selectedSlot.status === "reserved" && !selectedSlot.paid && (
+            {selected.status === "reserved" && !selected.paid && (
               <button
-                onClick={() => pay(selectedSlot)}
+                onClick={() => pay(selected)}
                 className="mt-4 w-full bg-green-600 py-2 rounded"
               >
-                Pay Now
+                Pay
               </button>
             )}
 
             {/* AFTER PAYMENT */}
-            {selectedSlot.paid && (
+            {selected.paid && (
               <>
-                <div className="mt-4 p-3 bg-green-800/40 rounded">
-                  <p className="text-sm">Payment Complete</p>
-                  <p className="text-xs mt-1 break-all">
-                    QR: {selectedSlot.activeQrToken}
+                <div className="mt-4 bg-green-800/40 p-3 rounded">
+                  <p>Payment Complete</p>
+                  <p className="text-xs break-all mt-1">
+                    {selected.activeQrToken}
                   </p>
                 </div>
 
-                {/* SENSOR */}
-                <div className="mt-4 p-3 bg-blue-900/40 rounded">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Radio className="w-4 h-4 animate-pulse" />
-                    {selectedSlot.status === "occupied"
-                      ? "Car Detected"
-                      : "Waiting for vehicle"}
-                  </div>
+                <div className="mt-4 bg-blue-900/40 p-3 rounded flex items-center gap-2">
+                  <Radio className="w-4 h-4 animate-pulse" />
+                  {selected.status === "occupied"
+                    ? "Car detected"
+                    : "Waiting for vehicle"}
                 </div>
 
-                {/* BOLLARD */}
                 <button
-                  onClick={() => toggleBollard(selectedSlot)}
+                  onClick={() => toggleBollard(selected)}
                   className="mt-4 w-full bg-yellow-600 py-2 rounded"
                 >
-                  {selectedSlot.bollardUp ? "Lower Bollard" : "Raise Bollard"}
+                  {selected.bollardUp ? "Lower Bollard" : "Raise Bollard"}
                 </button>
               </>
             )}
