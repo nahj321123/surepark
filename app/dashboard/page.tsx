@@ -29,58 +29,57 @@ export default function DashboardPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [slots, setSlots] = useState<ParkingSlot[]>([])
-  const [selectedSlot, setSelectedSlot] = useState<ParkingSlot | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
 
-  // 🔥 MERGE FUNCTION
-  const mergeSlots = (apiSlots: any[]) => {
+  // 🔥 merge API + default
+  const mergeSlots = (api: any[]) => {
     return DEFAULT_SLOTS.map((def) => {
-      const api = apiSlots.find((s) => s.id === def.id)
-      return { ...def, ...api }
+      const s = api.find((x) => x.id === def.id)
+      return { ...def, ...s }
     })
   }
 
-  // LOAD
+  const loadSlots = async () => {
+    try {
+      const res = await fetch("/api/slots", { cache: "no-store" })
+      const data = await res.json()
+      setSlots(mergeSlots(data || []))
+    } catch {
+      setSlots(DEFAULT_SLOTS)
+    }
+  }
+
   useEffect(() => {
     const u = localStorage.getItem("surepark_user")
     if (!u) return router.push("/login")
     setUser(JSON.parse(u))
-
-    fetch("/api/slots")
-      .then((r) => r.json())
-      .then((api) => setSlots(mergeSlots(api || [])))
+    loadSlots()
   }, [])
 
-  // POLLING
+  // 🔁 polling
   useEffect(() => {
-    const i = setInterval(async () => {
-      const res = await fetch("/api/slots", { cache: "no-store" })
-      const api = await res.json()
-      setSlots(mergeSlots(api || []))
-    }, 2000)
-
+    const i = setInterval(loadSlots, 2000)
     return () => clearInterval(i)
   }, [])
 
+  const selectedSlot = slots.find((s) => s.id === selectedId)
+
   // ACTIONS
-  const reserveSlot = async (slot: ParkingSlot) => {
+  const reserve = async (slot: ParkingSlot) => {
     await fetch("/api/slots", {
       method: "POST",
-      body: JSON.stringify({
-        slotId: slot.id,
-        userId: user.email,
-      }),
+      body: JSON.stringify({ slotId: slot.id, userId: user.email }),
     })
+    loadSlots()
   }
 
-  const paySlot = async (slot: ParkingSlot) => {
+  const pay = async (slot: ParkingSlot) => {
     const qr = `SP-${slot.id}-${Date.now()}`
     await fetch(`/api/slots/${slot.id}`, {
       method: "PATCH",
-      body: JSON.stringify({
-        paid: true,
-        activeQrToken: qr,
-      }),
+      body: JSON.stringify({ paid: true, activeQrToken: qr }),
     })
+    loadSlots()
   }
 
   const toggleBollard = async (slot: ParkingSlot) => {
@@ -91,6 +90,7 @@ export default function DashboardPage() {
         bollardUp: !slot.bollardUp,
       }),
     })
+    loadSlots()
   }
 
   if (!user) return null
@@ -99,13 +99,15 @@ export default function DashboardPage() {
     <div className="p-6 text-white">
       <h1 className="text-2xl font-bold mb-6">SurePark Dashboard</h1>
 
+      {/* GRID */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {slots.map((slot) => (
-          <div key={slot.id} className="bg-slate-800 p-4 rounded-lg">
-            <h2 className="text-xl font-bold">{slot.name}</h2>
-            <p className="text-sm text-gray-400">{slot.location}</p>
+          <div key={slot.id} className="bg-slate-800 p-5 rounded-xl shadow">
 
-            <span className={`text-xs px-2 py-1 rounded ${
+            <h2 className="text-lg font-bold">{slot.name}</h2>
+            <p className="text-gray-400 text-sm">{slot.location}</p>
+
+            <span className={`inline-block mt-2 text-xs px-2 py-1 rounded ${
               slot.status === "available"
                 ? "bg-green-600"
                 : slot.status === "reserved"
@@ -115,20 +117,20 @@ export default function DashboardPage() {
               {slot.status.toUpperCase()}
             </span>
 
-            <p className="mt-2">₱{slot.price}/hour</p>
+            <p className="mt-3 text-lg font-semibold">₱{slot.price}/hour</p>
 
-            <div className="mt-3 flex gap-2">
+            <div className="flex gap-2 mt-4">
               <button
-                onClick={() => setSelectedSlot(slot)}
-                className="w-1/2 bg-gray-600 py-2 rounded"
+                onClick={() => setSelectedId(slot.id)}
+                className="flex-1 bg-gray-600 py-2 rounded"
               >
                 View
               </button>
 
               {slot.status === "available" && (
                 <button
-                  onClick={() => reserveSlot(slot)}
-                  className="w-1/2 bg-blue-600 py-2 rounded"
+                  onClick={() => reserve(slot)}
+                  className="flex-1 bg-blue-600 py-2 rounded"
                 >
                   Reserve
                 </button>
@@ -140,50 +142,53 @@ export default function DashboardPage() {
 
       {/* MODAL */}
       {selectedSlot && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center">
-          <div className="bg-slate-800 p-6 rounded-lg w-[350px]">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-slate-900 p-6 rounded-xl w-[380px] shadow-xl">
 
-            <h2 className="text-xl font-bold mb-2">{selectedSlot.name}</h2>
+            <h2 className="text-xl font-bold">{selectedSlot.name}</h2>
             <p className="text-gray-400">{selectedSlot.location}</p>
 
-            <p className="mt-3">₱{selectedSlot.price}/hour</p>
+            <p className="mt-2 text-lg">₱{selectedSlot.price}/hour</p>
+
+            {/* STATUS */}
+            <p className="mt-2 text-sm">
+              Status: <b>{selectedSlot.status}</b>
+            </p>
 
             {/* PAYMENT */}
             {selectedSlot.status === "reserved" && !selectedSlot.paid && (
               <button
-                onClick={() => paySlot(selectedSlot)}
-                className="mt-3 w-full bg-green-600 py-2 rounded"
+                onClick={() => pay(selectedSlot)}
+                className="mt-4 w-full bg-green-600 py-2 rounded"
               >
-                Pay
+                Pay Now
               </button>
             )}
 
             {/* AFTER PAYMENT */}
             {selectedSlot.paid && (
               <>
-                <div className="mt-3 bg-green-900/40 p-3 rounded">
-                  Payment Complete
-                  <div className="text-xs mt-1">
+                <div className="mt-4 p-3 bg-green-800/40 rounded">
+                  <p className="text-sm">Payment Complete</p>
+                  <p className="text-xs mt-1 break-all">
                     QR: {selectedSlot.activeQrToken}
-                  </div>
+                  </p>
                 </div>
 
-                {/* SENSOR STATUS */}
-                <div className="mt-3 bg-blue-900/30 p-3 rounded">
-                  <div className="flex items-center gap-2">
+                {/* SENSOR */}
+                <div className="mt-4 p-3 bg-blue-900/40 rounded">
+                  <div className="flex items-center gap-2 text-sm">
                     <Radio className="w-4 h-4 animate-pulse" />
-                    <span>
-                      {selectedSlot.status === "occupied"
-                        ? "Car Detected"
-                        : "Waiting for vehicle"}
-                    </span>
+                    {selectedSlot.status === "occupied"
+                      ? "Car Detected"
+                      : "Waiting for vehicle"}
                   </div>
                 </div>
 
                 {/* BOLLARD */}
                 <button
                   onClick={() => toggleBollard(selectedSlot)}
-                  className="mt-3 w-full bg-yellow-600 py-2 rounded"
+                  className="mt-4 w-full bg-yellow-600 py-2 rounded"
                 >
                   {selectedSlot.bollardUp ? "Lower Bollard" : "Raise Bollard"}
                 </button>
@@ -191,8 +196,8 @@ export default function DashboardPage() {
             )}
 
             <button
-              onClick={() => setSelectedSlot(null)}
-              className="mt-4 w-full bg-red-600 py-2 rounded"
+              onClick={() => setSelectedId(null)}
+              className="mt-5 w-full bg-red-600 py-2 rounded"
             >
               Close
             </button>
